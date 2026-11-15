@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,9 +29,7 @@ import androidx.compose.material.icons.rounded.CorporateFare
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Security
-import androidx.compose.material.icons.rounded.SupervisorAccount
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
@@ -38,8 +37,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -67,7 +66,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.civicpulse.app.core.model.User
 import com.civicpulse.app.core.theme.CivicPulseTheme
 import com.civicpulse.app.core.theme.DarkGreen
 import com.civicpulse.app.core.theme.Gold
@@ -77,8 +75,11 @@ fun LoginScreen(
     uiState: LoginUiState,
     onEmailChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
+    onNameChanged: (String) -> Unit,
+    onInvitationCodeChanged: (String) -> Unit,
     onLoginClick: () -> Unit,
-    onRoleSelected: (String) -> Unit,
+    onRegisterClick: () -> Unit,
+    onRegisterModeChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
@@ -91,6 +92,7 @@ fun LoginScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
         ) {
             // Header with Gradient and Branding
@@ -170,59 +172,24 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Welcome Back",
+                    text = if (uiState.isRegisterMode) "Create your account" else "Welcome Back",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.align(Alignment.Start)
                 )
 
                 Text(
-                    text = "Sign in to access your dashboard",
+                    text = if (uiState.isRegisterMode) {
+                        "Register once using your organization invitation"
+                    } else {
+                        "Sign in to access your account"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .align(Alignment.Start)
                         .padding(bottom = 20.dp)
                 )
-
-                // Quick Demo Role Selector
-                Text(
-                    text = "Quick Demo Role Selection:",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier
-                        .align(Alignment.Start)
-                        .padding(bottom = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    RoleChip(
-                        roleTitle = "Provider",
-                        icon = Icons.Rounded.Person,
-                        isSelected = uiState.email.contains("provider"),
-                        onClick = { onRoleSelected(User.ROLE_PROVIDER) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    RoleChip(
-                        roleTitle = "Supervisor",
-                        icon = Icons.Rounded.SupervisorAccount,
-                        isSelected = uiState.email.contains("supervisor"),
-                        onClick = { onRoleSelected(User.ROLE_SUPERVISOR) },
-                        modifier = Modifier.weight(1.1f)
-                    )
-                    RoleChip(
-                        roleTitle = "Client",
-                        icon = Icons.Rounded.CorporateFare,
-                        isSelected = uiState.email.contains("client"),
-                        onClick = { onRoleSelected(User.ROLE_CLIENT) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
 
                 // Error Message Display
                 AnimatedVisibility(
@@ -260,12 +227,35 @@ fun LoginScreen(
                     }
                 }
 
+                if (uiState.isRegisterMode) {
+                    OutlinedTextField(
+                        value = uiState.name,
+                        onValueChange = onNameChanged,
+                        label = { Text("Full Name") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.CorporateFare, contentDescription = "Name")
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
                 // Email Input
                 OutlinedTextField(
                     value = uiState.email,
                     onValueChange = onEmailChanged,
                     label = { Text("Email Address") },
-                    placeholder = { Text("e.g. provider@civicpulse.com") },
+                    placeholder = { Text("you@example.com") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Rounded.Email,
@@ -280,12 +270,38 @@ fun LoginScreen(
                         keyboardType = KeyboardType.Email,
                         imeAction = ImeAction.Next
                     ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    ),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = DarkGreen,
                         focusedLabelColor = DarkGreen
                     ),
                     shape = RoundedCornerShape(12.dp)
                 )
+
+                if (uiState.isRegisterMode) {
+                    OutlinedTextField(
+                        value = uiState.invitationCode,
+                        onValueChange = onInvitationCodeChanged,
+                        label = { Text("Organization Invitation Code") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Security, contentDescription = "Invitation code")
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Next
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
 
                 // Password Input
                 OutlinedTextField(
@@ -318,7 +334,7 @@ fun LoginScreen(
                     keyboardActions = KeyboardActions(
                         onDone = {
                             focusManager.clearFocus()
-                            onLoginClick()
+                            if (uiState.isRegisterMode) onRegisterClick() else onLoginClick()
                         }
                     ),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -332,7 +348,7 @@ fun LoginScreen(
                 Button(
                     onClick = {
                         focusManager.clearFocus()
-                        onLoginClick()
+                        if (uiState.isRegisterMode) onRegisterClick() else onLoginClick()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -361,11 +377,26 @@ fun LoginScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Sign In",
+                                text = if (uiState.isRegisterMode) "Create Account" else "Sign In",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                    }
+
+                    TextButton(
+                        onClick = { onRegisterModeChanged(!uiState.isRegisterMode) },
+                        enabled = !uiState.isLoading,
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text(
+                            if (uiState.isRegisterMode) {
+                                "Already registered? Sign in"
+                            } else {
+                                "New here? Register with an invitation"
+                            },
+                            color = DarkGreen
+                        )
                     }
                 }
             }
@@ -403,42 +434,6 @@ private fun BranchBadge(
     }
 }
 
-@Composable
-private fun RoleChip(
-    roleTitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    FilterChip(
-        selected = isSelected,
-        onClick = onClick,
-        label = {
-            Text(
-                text = roleTitle,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-            )
-        },
-        leadingIcon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
-        },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = Gold.copy(alpha = 0.25f),
-            selectedLabelColor = DarkGreen,
-            selectedLeadingIconColor = DarkGreen,
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        shape = RoundedCornerShape(10.dp),
-        modifier = modifier
-    )
-}
-
 @Preview(showBackground = true, device = "spec:width=411dp,height=891dp")
 @Composable
 fun LoginScreenPreview() {
@@ -447,8 +442,11 @@ fun LoginScreenPreview() {
             uiState = LoginUiState(),
             onEmailChanged = {},
             onPasswordChanged = {},
+            onNameChanged = {},
+            onInvitationCodeChanged = {},
             onLoginClick = {},
-            onRoleSelected = {}
+            onRegisterClick = {},
+            onRegisterModeChanged = {}
         )
     }
 }

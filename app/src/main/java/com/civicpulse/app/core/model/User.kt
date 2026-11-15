@@ -8,7 +8,9 @@ data class User(
     val name: String = "",
     val role: String = "", // "provider" | "supervisor" | "client"
     val phone: String = "",
-    val email: String = ""
+    val email: String = "",
+    val accountIds: List<String> = emptyList(),
+    val selectedAccountId: String = ""
 ) {
     companion object {
         const val ROLE_PROVIDER = "provider"

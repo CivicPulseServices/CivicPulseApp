@@ -1,45 +1,52 @@
 package com.civicpulse.app
 
-import com.civicpulse.app.core.model.User
 import com.civicpulse.app.data.repository.AuthRepository
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AuthRepositoryTest {
 
     @Test
-    fun testProviderDemoLoginSuccess() = runTest {
-        val repository = AuthRepository()
-        val result = repository.login("provider@civicpulse.com", "password123")
-        assertTrue(result.isSuccess)
-        val user = result.getOrNull()
-        assertNotNull(user)
-        assertEquals(User.ROLE_PROVIDER, user?.role)
-        assertTrue(user?.isProvider == true)
+    fun loginFailsWhenFirebaseIsNotConfigured() = runTest {
+        val repository = AuthRepository(authSupplier = { null })
+
+        val result = repository.login("person@example.com", "password123")
+
+        assertTrue(result.isFailure)
+        assertEquals(
+            "Sign-in is unavailable. Firebase is not configured.",
+            result.exceptionOrNull()?.message
+        )
     }
 
     @Test
-    fun testSupervisorDemoLoginSuccess() = runTest {
-        val repository = AuthRepository()
-        val result = repository.login("supervisor@civicpulse.com", "password123")
-        assertTrue(result.isSuccess)
-        val user = result.getOrNull()
-        assertNotNull(user)
-        assertEquals(User.ROLE_SUPERVISOR, user?.role)
-        assertTrue(user?.isSupervisor == true)
+    fun registrationFailsWhenFirebaseIsNotConfigured() = runTest {
+        val repository = AuthRepository(authSupplier = { null })
+
+        val result = repository.register(
+            name = "Test User",
+            email = "person@example.com",
+            password = "password123",
+            invitationCode = "invite-code"
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(
+            "Registration is unavailable. Firebase is not configured.",
+            result.exceptionOrNull()?.message
+        )
     }
 
     @Test
-    fun testClientDemoLoginSuccess() = runTest {
-        val repository = AuthRepository()
-        val result = repository.login("client@civicpulse.com", "password123")
+    fun sessionRestoreIsSignedOutWhenFirebaseIsNotConfigured() = runTest {
+        val repository = AuthRepository(authSupplier = { null })
+
+        val result = repository.restoreSession()
+
         assertTrue(result.isSuccess)
-        val user = result.getOrNull()
-        assertNotNull(user)
-        assertEquals(User.ROLE_CLIENT, user?.role)
-        assertTrue(user?.isClient == true)
+        assertNull(result.getOrNull())
     }
 }

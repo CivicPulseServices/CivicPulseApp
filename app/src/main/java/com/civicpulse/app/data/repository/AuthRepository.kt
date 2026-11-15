@@ -1,6 +1,7 @@
 package com.civicpulse.app.data.repository
 
 import android.util.Log
+import com.civicpulse.app.core.model.Account
 import com.civicpulse.app.core.model.User
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +14,7 @@ class AuthRepository(
     private val authSupplier: () -> FirebaseAuth? = {
         try {
             FirebaseAuth.getInstance()
-        } catch (e: Throwable) {
+        } catch (_: Throwable) {
             null
         }
     }
@@ -23,129 +24,114 @@ class AuthRepository(
     private val _currentUserState = MutableStateFlow<User?>(null)
     val currentUserState: StateFlow<User?> = _currentUserState.asStateFlow()
 
-    init {
-        try {
-            val firebaseUser = firebaseAuth?.currentUser
-            if (firebaseUser != null) {
-                _currentUserState.value = User(
-                    uid = firebaseUser.uid,
-                    email = firebaseUser.email ?: "",
-                    name = firebaseUser.displayName ?: "Civic Pulse User",
-                    role = User.ROLE_PROVIDER
-                )
-            }
-        } catch (e: Exception) {
-            Log.w("AuthRepository", "Current user check error: ${e.message}")
+    suspend fun restoreSession(): Result<User?> {
+        val firebaseUser = firebaseAuth?.currentUser ?: return Result.success(null)
+        return loadProfile(firebaseUser.uid).map { user ->
+            _currentUserState.value = user
+            user
+        }.onFailure {
+            signOutFirebaseUser()
         }
     }
 
     suspend fun login(email: String, password: String): Result<User> {
-        val cleanEmail = email.trim().lowercase()
-
-        // 1. Check for demo account shortcuts for fast offline/local validation
-        val demoUid = when {
-            cleanEmail.startsWith("provider") -> "uid_provider"
-            cleanEmail.startsWith("supervisor") -> "uid_supervisor"
-            cleanEmail.startsWith("client") -> "uid_client"
-            else -> null
-        }
-
-        if (demoUid != null) {
-            val userResult = firestoreRepository.getUserProfile(demoUid)
-            val user = userResult.getOrNull() ?: User(
-                uid = demoUid,
-                name = when (demoUid) {
-                    "uid_supervisor" -> "Rajesh Kumar (Supervisor)"
-                    "uid_client" -> "Metro Towers (Client)"
-                    else -> "Anil Sharma (Provider)"
-                },
-                role = when (demoUid) {
-                    "uid_supervisor" -> User.ROLE_SUPERVISOR
-                    "uid_client" -> User.ROLE_CLIENT
-                    else -> User.ROLE_PROVIDER
-                },
-                email = cleanEmail,
-                phone = "+91 98765 43210"
-            )
-            _currentUserState.value = user
-            return Result.success(user)
-        }
-
         val auth = firebaseAuth
-        if (auth == null) {
-            // JVM Unit test / offline mode without Firebase SDK
-            val fallbackRole = when {
-                cleanEmail.contains("supervisor") -> User.ROLE_SUPERVISOR
-                cleanEmail.contains("client") -> User.ROLE_CLIENT
-                else -> User.ROLE_PROVIDER
-            }
-            val fallbackUser = User(
-                uid = "uid_" + cleanEmail.takeWhile { it != '@' },
-                name = cleanEmail.substringBefore('@').replaceFirstChar { it.uppercase() },
-                role = fallbackRole,
-                email = cleanEmail,
-                phone = "+91 98765 43210"
-            )
-            _currentUserState.value = fallbackUser
-            return Result.success(fallbackUser)
-        }
+            ?: return Result.failure(Exception("Sign-in is unavailable. Firebase is not configured."))
 
-        // 2. Perform real Firebase Auth sign-in
         return try {
-            val authResult = auth.signInWithEmailAndPassword(cleanEmail, password).await()
+            val authResult = auth.signInWithEmailAndPassword(email.trim(), password).await()
             val firebaseUser = authResult.user
-                ?: return Result.failure(Exception("Authentication failed: User is null"))
-
-            // Fetch user profile from Firestore users/{uid}
-            val profileResult = firestoreRepository.getUserProfile(firebaseUser.uid)
-            val user = profileResult.getOrNull() ?: User(
-                uid = firebaseUser.uid,
-                email = firebaseUser.email ?: cleanEmail,
-                name = firebaseUser.displayName ?: "Civic Pulse User",
-                role = User.ROLE_PROVIDER
-            )
-
-            _currentUserState.value = user
-            Result.success(user)
-        } catch (e: Exception) {
-            Log.w("AuthRepository", "Firebase auth failed, checking fallback: ${e.message}")
-            if (password.length >= 6) {
-                val fallbackRole = when {
-                    cleanEmail.contains("supervisor") -> User.ROLE_SUPERVISOR
-                    cleanEmail.contains("client") -> User.ROLE_CLIENT
-                    else -> User.ROLE_PROVIDER
-                }
-                val fallbackUser = User(
-                    uid = "uid_" + cleanEmail.takeWhile { it != '@' },
-                    name = cleanEmail.substringBefore('@').replaceFirstChar { it.uppercase() },
-                    role = fallbackRole,
-                    email = cleanEmail,
-                    phone = "+91 98765 43210"
-                )
-                firestoreRepository.saveUserProfile(fallbackUser)
-                _currentUserState.value = fallbackUser
-                Result.success(fallbackUser)
-            } else {
-                Result.failure(e)
+                ?: return Result.failure(Exception("Authentication failed: no user was returned."))
+            loadProfile(firebaseUser.uid).onSuccess { user ->
+                _currentUserState.value = user
+            }.onFailure {
+                signOutFirebaseUser()
             }
+        } catch (e: Exception) {
+            Log.w("AuthRepository", "Sign-in failed: ${e.message}")
+            Result.failure(e)
         }
     }
 
-    suspend fun fetchUserProfile(uid: String): Result<User?> {
-        val result = firestoreRepository.getUserProfile(uid)
-        val user = result.getOrNull()
-        if (user != null) {
-            _currentUserState.value = user
+    suspend fun register(
+        name: String,
+        email: String,
+        password: String,
+        invitationCode: String
+    ): Result<User> {
+        val auth = firebaseAuth
+            ?: return Result.failure(Exception("Registration is unavailable. Firebase is not configured."))
+
+        return try {
+            val authResult = auth.createUserWithEmailAndPassword(email.trim(), password).await()
+            val firebaseUser = authResult.user
+                ?: return Result.failure(Exception("Registration failed: no user was returned."))
+            val profileResult = firestoreRepository.createInvitedUser(
+                uid = firebaseUser.uid,
+                name = name.trim(),
+                email = email.trim(),
+                invitationCode = invitationCode.trim()
+            )
+            profileResult.onSuccess { user ->
+                _currentUserState.value = user
+            }.onFailure { error ->
+                try {
+                    firebaseUser.delete().await()
+                } catch (deleteError: Exception) {
+                    Log.e("AuthRepository", "Could not remove unprovisioned Firebase user", deleteError)
+                }
+                signOutFirebaseUser()
+                Log.w("AuthRepository", "Invitation registration failed: ${error.message}")
+            }
+        } catch (e: Exception) {
+            Log.w("AuthRepository", "Registration failed: ${e.message}")
+            Result.failure(e)
         }
-        return result
+    }
+
+    suspend fun getAvailableAccounts(user: User): Result<List<Account>> {
+        return firestoreRepository.getAccountsForUser(user)
+    }
+
+    suspend fun selectAccount(user: User, account: Account): Result<User> {
+        val availableAccounts = getAvailableAccounts(user).getOrElse {
+            return Result.failure(it)
+        }
+        if (availableAccounts.none { it.id == account.id }) {
+            return Result.failure(Exception("You do not have access to this account."))
+        }
+        val saveResult = firestoreRepository.saveSelectedAccount(user.uid, account.id)
+        return saveResult.map {
+            user.copy(selectedAccountId = account.id).also { updatedUser ->
+                _currentUserState.value = updatedUser
+            }
+        }
     }
 
     fun logout() {
+        signOutFirebaseUser()
+        _currentUserState.value = null
+    }
+
+    private suspend fun loadProfile(uid: String): Result<User> {
+        return firestoreRepository.getUserProfile(uid).fold(
+            onSuccess = { user ->
+                when {
+                    user == null -> Result.failure(Exception("Your account is not linked to an access profile. Contact your organization administrator."))
+                    !user.isProvider && !user.isSupervisor && !user.isClient ->
+                        Result.failure(Exception("Your account has no valid access role. Contact your organization administrator."))
+                    else -> Result.success(user)
+                }
+            },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    private fun signOutFirebaseUser() {
         try {
             firebaseAuth?.signOut()
         } catch (e: Exception) {
-            Log.w("AuthRepository", "Logout error: ${e.message}")
+            Log.w("AuthRepository", "Sign-out error: ${e.message}")
         }
-        _currentUserState.value = null
     }
 }

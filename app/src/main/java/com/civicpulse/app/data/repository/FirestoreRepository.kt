@@ -1,10 +1,12 @@
 package com.civicpulse.app.data.repository
 
 import android.util.Log
+import com.civicpulse.app.core.model.Account
 import com.civicpulse.app.core.model.Agent
 import com.civicpulse.app.core.model.Attendance
 import com.civicpulse.app.core.model.User
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -143,6 +145,7 @@ class FirestoreRepository(
             val fallback = localUsersStore[uid] ?: localUsersStore.values.find {
                 it.uid == uid || it.email.contains(uid, ignoreCase = true)
             }
+
             return Result.success(fallback)
         }
 
@@ -171,6 +174,144 @@ class FirestoreRepository(
                 it.uid == uid || it.email.contains(uid, ignoreCase = true)
             }
             Result.success(fallback)
+        }
+    }
+
+    suspend fun createInvitedUser(
+        uid: String,
+        name: String,
+        email: String,
+        invitationCode: String
+    ): Result<User> {
+        val fs = firestore
+            ?: return Result.failure(Exception("Registration is unavailable. Firebase is not configured."))
+        if (invitationCode.isBlank()) {
+            return Result.failure(Exception("Enter your organization invitation code."))
+        }
+
+        val invitationRef = fs.collection("invitations").document(invitationCode)
+        val userRef = fs.collection("users").document(uid)
+
+        return try {
+            val user = fs.runTransaction { transaction ->
+                val invitation = transaction.get(invitationRef)
+                if (!invitation.exists()) {
+                    throw IllegalArgumentException("The invitation code is invalid.")
+                }
+                if (invitation.getBoolean("used") == true) {
+                    throw IllegalArgumentException("This invitation code has already been used.")
+                }
+
+                val invitedEmail = invitation.getString("email").orEmpty().trim()
+                if (invitedEmail.isNotBlank() && !invitedEmail.equals(email.trim(), ignoreCase = true)) {
+                    throw IllegalArgumentException("Use the email address that received this invitation.")
+                }
+
+                val role = invitation.getString("role").orEmpty().lowercase()
+                if (role !in setOf(User.ROLE_PROVIDER, User.ROLE_SUPERVISOR, User.ROLE_CLIENT)) {
+                    throw IllegalArgumentException("The invitation does not contain a valid access role.")
+                }
+                val accountId = invitation.getString("accountId").orEmpty().trim()
+                val accountName = invitation.getString("accountName").orEmpty().trim()
+                if (accountId.isBlank() || accountName.isBlank()) {
+                    throw IllegalArgumentException("The invitation is missing its organization details.")
+                }
+
+                val createdUser = User(
+                    uid = uid,
+                    name = name,
+                    role = role,
+                    email = email.trim().lowercase(),
+                    accountIds = listOf(accountId)
+                )
+                val accountRef = fs.collection("accounts").document(accountId)
+                val accountSnapshot = transaction.get(accountRef)
+                if (accountSnapshot.exists()) {
+                    transaction.update(accountRef, "memberIds", FieldValue.arrayUnion(uid))
+                } else {
+                    transaction.set(
+                        accountRef,
+                        Account(id = accountId, name = accountName, memberIds = listOf(uid))
+                    )
+                }
+                transaction.set(userRef, createdUser)
+                transaction.update(invitationRef, "used", true)
+                createdUser
+            }.await()
+
+            localUsersStore[user.uid] = user
+            Result.success(user)
+        } catch (e: Exception) {
+            Log.w("FirestoreRepository", "Invited registration failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAccountsForUser(user: User): Result<List<Account>> {
+        val fs = firestore
+        if (fs == null) {
+            val accountIds = if (user.accountIds.isNotEmpty()) {
+                user.accountIds
+            } else if (user.isSupervisor) {
+                getAgentsForSupervisor(user.uid).getOrDefault(emptyList()).map { it.clientId }.distinct()
+            } else if (user.isClient) {
+                listOf(user.uid)
+            } else {
+                getUsersByRole(User.ROLE_CLIENT).getOrDefault(emptyList()).map { it.uid }
+            }
+            return Result.success(accountIds.mapNotNull { id ->
+                getUserProfile(id).getOrNull()?.let { Account(id = id, name = it.name) }
+                    ?: Account(id = id, name = id)
+            })
+        }
+
+        return try {
+            var accounts = if (user.isProvider) {
+                if (user.accountIds.isNotEmpty()) {
+                    user.accountIds.mapNotNull { id ->
+                        fs.collection("accounts").document(id).get().await().toObject(Account::class.java)
+                    }
+                } else {
+                    fs.collection("accounts")
+                        .whereArrayContains("memberIds", user.uid)
+                        .get()
+                        .await()
+                        .toObjects(Account::class.java)
+                }
+            } else if (user.accountIds.isNotEmpty()) {
+                user.accountIds.mapNotNull { id ->
+                    fs.collection("accounts").document(id).get().await().toObject(Account::class.java)
+                }
+            } else {
+                when {
+                    user.isClient -> listOf(Account(id = user.uid, name = user.name))
+                    user.isSupervisor -> {
+                        val agents = getAgentsForSupervisor(user.uid).getOrThrow()
+                        agents.map { it.clientId }.filter(String::isNotBlank).distinct().mapNotNull { id ->
+                            getUserProfile(id).getOrThrow()?.let { Account(id = id, name = it.name) }
+                        }
+                    }
+                    else -> emptyList()
+                }
+            }
+            Result.success(accounts)
+        } catch (e: Exception) {
+            Log.w("FirestoreRepository", "Account lookup failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun saveSelectedAccount(uid: String, accountId: String): Result<Unit> {
+        val fs = firestore
+            ?: return Result.failure(Exception("Account selection cannot be saved. Firebase is not configured."))
+        return try {
+            fs.collection("users").document(uid)
+                .update("selectedAccountId", accountId)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w("FirestoreRepository", "Could not save selected account: ${e.message}")
+            Result.failure(e)
         }
     }
 

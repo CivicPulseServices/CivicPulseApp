@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.civicpulse.app.core.model.Account
 import com.civicpulse.app.core.model.User
 import com.civicpulse.app.core.theme.CivicPulseTheme
 import com.civicpulse.app.core.theme.DarkGreen
@@ -46,7 +48,10 @@ import com.civicpulse.app.core.theme.Gold
 fun SupervisorDashboardScreen(
     user: User,
     onLogout: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedAccount: Account? = null,
+    hasMultipleAccounts: Boolean = false,
+    onSwitchAccount: () -> Unit = {}
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -88,7 +93,7 @@ fun SupervisorDashboardScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = user.name,
+                                text = selectedAccount?.name ?: user.name,
                                 style = MaterialTheme.typography.titleMedium,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold
@@ -101,19 +106,33 @@ fun SupervisorDashboardScreen(
                         }
                     }
 
-                    Button(
-                        onClick = onLogout,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White.copy(alpha = 0.15f),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ExitToApp,
-                            contentDescription = "Logout",
-                            modifier = Modifier.size(18.dp)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (hasMultipleAccounts) {
+                            Button(
+                                onClick = onSwitchAccount,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.White.copy(alpha = 0.15f),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Switch", fontSize = 12.sp)
+                            }
+                        }
+                        Button(
+                            onClick = onLogout,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White.copy(alpha = 0.15f),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ExitToApp,
+                                contentDescription = "Sign out",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }

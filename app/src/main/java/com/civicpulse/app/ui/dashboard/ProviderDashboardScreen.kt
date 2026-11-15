@@ -86,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.civicpulse.app.core.model.Agent
+import com.civicpulse.app.core.model.Account
 import com.civicpulse.app.core.model.Attendance
 import com.civicpulse.app.core.model.User
 import com.civicpulse.app.core.theme.CivicPulseTheme
@@ -101,6 +102,9 @@ fun ProviderDashboardScreen(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ProviderViewModel = viewModel(),
+    selectedAccount: Account? = null,
+    hasMultipleAccounts: Boolean = false,
+    onSwitchAccount: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -153,7 +157,7 @@ fun ProviderDashboardScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = user.name.ifBlank { "Service Provider Admin" },
+                                    text = (selectedAccount?.name ?: user.name).ifBlank { "Service Provider Admin" },
                                     style = MaterialTheme.typography.titleMedium,
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold
@@ -166,23 +170,37 @@ fun ProviderDashboardScreen(
                             }
                         }
 
-                        // Top Sign Out Action Button
-                        Button(
-                            onClick = onLogout,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White.copy(alpha = 0.2f),
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ExitToApp,
-                                contentDescription = "Sign Out",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "Sign Out", fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (hasMultipleAccounts) {
+                                Button(
+                                    onClick = onSwitchAccount,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.White.copy(alpha = 0.2f),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(text = "Switch", fontSize = 13.sp)
+                                }
+                            }
+                            Button(
+                                onClick = onLogout,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.White.copy(alpha = 0.2f),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ExitToApp,
+                                    contentDescription = "Sign Out",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = "Sign Out", fontSize = 13.sp)
+                            }
                         }
                     }
                 }

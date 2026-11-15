@@ -2,6 +2,7 @@ package com.civicpulse.app.ui.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.civicpulse.app.core.model.Account
 import com.civicpulse.app.core.model.User
 import com.civicpulse.app.data.repository.AuthRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,11 +12,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class LoginUiState(
-    val email: String = "provider@civicpulse.com",
-    val password: String = "password123",
+    val email: String = "",
+    val password: String = "",
+    val name: String = "",
+    val invitationCode: String = "",
+    val isRegisterMode: Boolean = false,
     val isLoading: Boolean = false,
+    val isRestoringSession: Boolean = true,
     val errorMessage: String? = null,
-    val loggedInUser: User? = null
+    val loggedInUser: User? = null,
+    val availableAccounts: List<Account> = emptyList(),
+    val selectedAccount: Account? = null,
+    val isChoosingAccount: Boolean = false
 )
 
 class LoginViewModel(
@@ -26,10 +34,17 @@ class LoginViewModel(
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
     init {
-        // Observe current user state from repository
         viewModelScope.launch {
-            authRepository.currentUserState.collect { user ->
-                _uiState.update { it.copy(loggedInUser = user) }
+            val result = authRepository.restoreSession()
+            _uiState.update { it.copy(isRestoringSession = false) }
+            result.onSuccess { user ->
+                if (user != null) {
+                    loadAccounts(user)
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(errorMessage = error.localizedMessage ?: "Could not restore your sign-in.")
+                }
             }
         }
     }
@@ -42,70 +57,150 @@ class LoginViewModel(
         _uiState.update { it.copy(password = password, errorMessage = null) }
     }
 
-    fun selectDemoRole(role: String) {
-        val demoEmail = when (role.lowercase()) {
-            User.ROLE_SUPERVISOR -> "supervisor@civicpulse.com"
-            User.ROLE_CLIENT -> "client@civicpulse.com"
-            else -> "provider@civicpulse.com"
-        }
-        _uiState.update {
-            it.copy(
-                email = demoEmail,
-                password = "password123",
-                errorMessage = null
-            )
-        }
-        login()
+    fun onNameChanged(name: String) {
+        _uiState.update { it.copy(name = name, errorMessage = null) }
+    }
+
+    fun onInvitationCodeChanged(code: String) {
+        _uiState.update { it.copy(invitationCode = code, errorMessage = null) }
+    }
+
+    fun setRegisterMode(isRegisterMode: Boolean) {
+        _uiState.update { it.copy(isRegisterMode = isRegisterMode, errorMessage = null) }
     }
 
     fun login() {
-        val email = _uiState.value.email.trim()
-        val password = _uiState.value.password
-
-        if (email.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Please enter an email address") }
+        val state = _uiState.value
+        if (state.email.isBlank()) {
+            showError("Please enter an email address.")
             return
         }
-        if (password.length < 6) {
-            _uiState.update { it.copy(errorMessage = "Password must be at least 6 characters") }
+        if (state.password.length < 6) {
+            showError("Password must be at least 6 characters.")
             return
         }
+        authenticate { authRepository.login(state.email, state.password) }
+    }
 
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val result = authRepository.login(email, password)
-            result.onSuccess { user ->
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        loggedInUser = user,
-                        errorMessage = null
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = error.localizedMessage ?: "Authentication failed. Check your credentials."
-                    )
-                }
-            }
+    fun register() {
+        val state = _uiState.value
+        if (state.name.isBlank()) {
+            showError("Please enter your name.")
+            return
+        }
+        if (state.email.isBlank()) {
+            showError("Please enter an email address.")
+            return
+        }
+        if (state.password.length < 6) {
+            showError("Password must be at least 6 characters.")
+            return
+        }
+        if (state.invitationCode.isBlank()) {
+            showError("Please enter your organization invitation code.")
+            return
+        }
+        authenticate {
+            authRepository.register(state.name, state.email, state.password, state.invitationCode)
         }
     }
 
-    fun logout() {
+    fun chooseAccount(account: Account) {
+        val state = _uiState.value
+        val user = state.loggedInUser ?: return
         viewModelScope.launch {
-            authRepository.logout()
-            _uiState.update {
-                it.copy(
-                    loggedInUser = null,
-                    errorMessage = null
-                )
-            }
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            authRepository.selectAccount(user, account)
+                .onSuccess { updatedUser ->
+                    _uiState.update {
+                        it.copy(
+                            loggedInUser = updatedUser,
+                            selectedAccount = account,
+                            isChoosingAccount = false,
+                            isLoading = false,
+                            errorMessage = null
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = error.localizedMessage ?: "Could not switch accounts."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun switchAccount() {
+        _uiState.update {
+            it.copy(isChoosingAccount = it.availableAccounts.size > 1, errorMessage = null)
+        }
+    }
+
+    fun cancelAccountSwitch() {
+        _uiState.update { it.copy(isChoosingAccount = false) }
+    }
+
+    fun logout() {
+        authRepository.logout()
+        _uiState.update {
+            LoginUiState(
+                isRestoringSession = false,
+                errorMessage = null
+            )
         }
     }
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    private fun authenticate(action: suspend () -> Result<User>) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            action()
+                .onSuccess { user -> loadAccounts(user) }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = error.localizedMessage ?: "Authentication failed. Check your credentials."
+                        )
+                    }
+                }
+        }
+    }
+
+    private suspend fun loadAccounts(user: User) {
+        authRepository.getAvailableAccounts(user)
+            .onSuccess { accounts ->
+                val selected = accounts.firstOrNull { it.id == user.selectedAccountId }
+                    ?: accounts.singleOrNull()
+                _uiState.update {
+                    it.copy(
+                        loggedInUser = user,
+                        availableAccounts = accounts,
+                        selectedAccount = selected,
+                        isChoosingAccount = accounts.size > 1 && selected == null,
+                        isLoading = false,
+                        errorMessage = null
+                    )
+                }
+            }
+            .onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        loggedInUser = user,
+                        isLoading = false,
+                        errorMessage = error.localizedMessage ?: "Could not load your accounts."
+                    )
+                }
+            }
+    }
+
+    private fun showError(message: String) {
+        _uiState.update { it.copy(errorMessage = message) }
     }
 }
