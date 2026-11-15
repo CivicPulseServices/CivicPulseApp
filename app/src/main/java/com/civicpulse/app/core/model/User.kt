@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 data class User(
     val uid: String = "",
     val name: String = "",
-    val role: String = "", // "provider" | "supervisor" | "client"
+    val role: String = "", // "admin" | "provider" | "supervisor" | "client"
     val phone: String = "",
     val email: String = "",
     val accountIds: List<String> = emptyList(),
@@ -16,8 +16,10 @@ data class User(
         const val ROLE_PROVIDER = "provider"
         const val ROLE_SUPERVISOR = "supervisor"
         const val ROLE_CLIENT = "client"
+        const val ROLE_ADMIN = "admin"
     }
 
+    val isAdmin: Boolean get() = role.lowercase() == ROLE_ADMIN
     val isProvider: Boolean get() = role.lowercase() == ROLE_PROVIDER
     val isSupervisor: Boolean get() = role.lowercase() == ROLE_SUPERVISOR
     val isClient: Boolean get() = role.lowercase() == ROLE_CLIENT

@@ -7,6 +7,7 @@ import com.civicpulse.app.core.model.Attendance
 import com.civicpulse.app.core.model.User
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -266,7 +267,9 @@ class FirestoreRepository(
         }
 
         return try {
-            var accounts = if (user.isProvider) {
+            val accounts = if (user.isAdmin) {
+                fs.collection("accounts").get().await().toObjects(Account::class.java)
+            } else if (user.isProvider) {
                 if (user.accountIds.isNotEmpty()) {
                     user.accountIds.mapNotNull { id ->
                         fs.collection("accounts").document(id).get().await().toObject(Account::class.java)
@@ -306,7 +309,7 @@ class FirestoreRepository(
             ?: return Result.failure(Exception("Account selection cannot be saved. Firebase is not configured."))
         return try {
             fs.collection("users").document(uid)
-                .update("selectedAccountId", accountId)
+                .set(mapOf("selectedAccountId" to accountId), SetOptions.merge())
                 .await()
             Result.success(Unit)
         } catch (e: Exception) {

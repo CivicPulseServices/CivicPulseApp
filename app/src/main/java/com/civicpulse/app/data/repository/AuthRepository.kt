@@ -3,6 +3,7 @@ package com.civicpulse.app.data.repository
 import android.util.Log
 import com.civicpulse.app.core.model.Account
 import com.civicpulse.app.core.model.User
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +27,7 @@ class AuthRepository(
 
     suspend fun restoreSession(): Result<User?> {
         val firebaseUser = firebaseAuth?.currentUser ?: return Result.success(null)
-        return loadProfile(firebaseUser.uid).map { user ->
+        return loadProfile(firebaseUser).map { user ->
             _currentUserState.value = user
             user
         }.onFailure {
@@ -42,7 +43,7 @@ class AuthRepository(
             val authResult = auth.signInWithEmailAndPassword(email.trim(), password).await()
             val firebaseUser = authResult.user
                 ?: return Result.failure(Exception("Authentication failed: no user was returned."))
-            loadProfile(firebaseUser.uid).onSuccess { user ->
+            loadProfile(firebaseUser).onSuccess { user ->
                 _currentUserState.value = user
             }.onFailure {
                 signOutFirebaseUser()
@@ -113,11 +114,27 @@ class AuthRepository(
         _currentUserState.value = null
     }
 
-    private suspend fun loadProfile(uid: String): Result<User> {
-        return firestoreRepository.getUserProfile(uid).fold(
+    private suspend fun loadProfile(firebaseUser: FirebaseUser): Result<User> {
+        val isAdmin = try {
+            firebaseUser.getIdToken(true).await().claims["admin"] == true
+        } catch (e: Exception) {
+            Log.w("AuthRepository", "Could not refresh account access claims: ${e.message}")
+            return Result.failure(e)
+        }
+
+        return firestoreRepository.getUserProfile(firebaseUser.uid).fold(
             onSuccess = { user ->
                 when {
+                    user == null && isAdmin -> Result.success(
+                        User(
+                            uid = firebaseUser.uid,
+                            name = firebaseUser.displayName.orEmpty(),
+                            email = firebaseUser.email.orEmpty(),
+                            role = User.ROLE_ADMIN
+                        )
+                    )
                     user == null -> Result.failure(Exception("Your account is not linked to an access profile. Contact your organization administrator."))
+                    isAdmin -> Result.success(user.copy(role = User.ROLE_ADMIN))
                     !user.isProvider && !user.isSupervisor && !user.isClient ->
                         Result.failure(Exception("Your account has no valid access role. Contact your organization administrator."))
                     else -> Result.success(user)

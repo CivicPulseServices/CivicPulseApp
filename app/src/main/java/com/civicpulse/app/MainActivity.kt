@@ -54,6 +54,7 @@ fun CivicPulseApp(
         uiState.isRestoringSession -> "loading"
         currentUser == null -> "login"
         uiState.isChoosingAccount -> "account-selection"
+        currentUser.isAdmin -> "admin-dashboard"
         currentUser.isSupervisor -> "supervisor-dashboard"
         currentUser.isClient -> "client-dashboard"
         else -> "provider-dashboard"
@@ -104,6 +105,15 @@ fun CivicPulseApp(
             }
             "client-dashboard" -> user?.let {
                 ClientDashboardScreen(
+                    user = it,
+                    onLogout = loginViewModel::logout,
+                    selectedAccount = state.selectedAccount,
+                    hasMultipleAccounts = state.availableAccounts.size > 1,
+                    onSwitchAccount = loginViewModel::switchAccount
+                )
+            }
+            "admin-dashboard" -> user?.let {
+                ProviderDashboardScreen(
                     user = it,
                     onLogout = loginViewModel::logout,
                     selectedAccount = state.selectedAccount,

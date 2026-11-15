@@ -163,7 +163,7 @@ fun ProviderDashboardScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Provider Management Hub",
+                                    text = if (user.isAdmin) "Platform Admin" else "Provider Management Hub",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Gold
                                 )
